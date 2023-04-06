@@ -117,8 +117,8 @@ rbac: true
 ## Enable extra Kubernetes API groups in role/clusterrole resource
 ## When set to true, it will add apiGroups to role/clusterrole for Operator 1.x Migration and OpenShift route resource
 clusterRole:
-  migration: true
-  openshift: true
+  migration: false
+  openshift: false
 
 ###
 ### Confluent Telemetry Report configuration
