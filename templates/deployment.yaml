@@ -97,14 +97,58 @@ spec:
             valueFrom:
               fieldRef:
                 fieldPath: metadata.uid
+          - name: DEPLOYMENT_NAME
+            value: {{ .Values.name }}
+        {{- if .Values.managedCerts.enabled }}
+          {{- if and (empty .Values.managedCerts.caCertificate.secretRef) (empty .Values.managedCerts.caCertificate.directoryPathInContainer) }}
+          {{- $_ := required "secretRef or directoryPathInContainer must be configured when managedCerts is enabled" .Values.managedCerts.secretRef }}
+          {{- end }}
+          {{- if ge (.Values.managedCerts.renewBeforeInDays) (.Values.managedCerts.certDurationInDays) }}
+          {{- $_ := required "managedCerts.certDurationInDays for managed certs should be greater than managedCerts.renewBeforeInDays" "" }}
+          {{- end }}
+          {{- if .Values.managedCerts.certDurationInDays }}
+          - name: CONFLUENT_MANAGED_CERTS_DURATION_DAYS
+            value: "{{ .Values.managedCerts.certDurationInDays }}"
+          {{- end }}
+          {{- if .Values.managedCerts.renewBeforeInDays }}
+          - name: CONFLUENT_MANAGED_CERTS_RENEW_BEFORE_DAYS
+            value: "{{ .Values.managedCerts.renewBeforeInDays }}"
+          {{- end }}
+          {{- if .Values.managedCerts.sans }}
+            {{- if not (regexMatch "[ -~]" .Values.managedCerts.sans) }}
+            {{- $_ := required "invalid characters in managedCerts.sans. Only first 128 ASCII characters are allowed" "" }}
+            {{- end }}
+          - name: CONFLUENT_MANAGED_CERTS_SANS
+            value: "{{ .Values.managedCerts.sans }}"
+          {{- end }}
+          {{- if .Values.managedCerts.caCertificate.secretRef }}
+          - name: CONFLUENT_MANAGED_CERTS_SECRET_NAME
+            value: {{ .Values.managedCerts.caCertificate.secretRef }}
+          {{- end }}
+          {{- if .Values.managedCerts.caCertificate.directoryPathInContainer }}
+          - name: CONFLUENT_MANAGED_CERTS_DIRECTORY_PATH
+            value: {{ .Values.managedCerts.caCertificate.directoryPathInContainer }}
+          {{- end }}
+        {{- end }}
           {{- if .Values.licenseSecretRef }}
           - name: CONFLUENT_LICENSE_SECRET_NAME
             value: {{ .Values.licenseSecretRef }}
+          {{- else if .Values.license.secretRef }}
+          - name: CONFLUENT_LICENSE_SECRET_NAME
+            value: {{ .Values.license.secretRef }}
           {{- end }}
-          {{- if .Values.telemetry.enabled }}
+          {{- if .Values.license.directoryPathInContainer }}
+          - name: CONFLUENT_LICENSE_DIRECTORY_PATH
+            value: {{ .Values.license.directoryPathInContainer }}
+          {{- end }}
+          {{- if or (.Values.telemetry.enabled) (.Values.telemetry.operator.enabled) }}
           {{- if and (empty .Values.telemetry.secretRef) (empty .Values.telemetry.directoryPathInContainer) }}
           {{- $_ := required "secretRef or directoryPathInContainer must be configured when telemetry is enabled" .Values.telemetry.secretRef }}
           {{- end }}
+          - name: CP_TELEMETRY_ENABLED
+            value: {{ quote .Values.telemetry.enabled }}
+          - name: OPERATOR_TELEMETRY_ENABLED
+            value: {{ quote .Values.telemetry.operator.enabled }}
           {{- if .Values.telemetry.secretRef }}
           - name: CONFLUENT_TELEMETRY_SECRET_NAME
             value: {{ .Values.telemetry.secretRef }}
@@ -122,6 +166,58 @@ spec:
             value: "true"
           {{- end }}
           {{- end }}
+      {{- if .Values.webhooks.enabled }}
+          {{- if and (empty .Values.webhooks.tls.secretRef) (empty .Values.webhooks.tls.directoryPathInContainer) }}
+          {{- $_ := required "secretRef or directoryPathInContainer must be configured when webhooks are enabled" .Values.webhooks.tls.secretRef }}
+          {{- end }}
+          {{- if .Values.webhooks.tls.secretRef }}
+          - name: CONFLUENT_WEBHOOKS_SECRET_NAME
+            value: {{ .Values.webhooks.tls.secretRef }}
+          {{- end }}
+          {{- if .Values.webhooks.tls.directoryPathInContainer }}
+          - name: CONFLUENT_WEBHOOKS_DIRECTORY_PATH
+            value: {{ .Values.webhooks.tls.directoryPathInContainer }}
+          {{- end }}
+          - name: CONFLUENT_WEBHOOKS_PORT
+            value: {{ quote .Values.webhooks.port }}
+      {{- end }}
+      {{- if .Values.containerSecurity.enabled }}
+        securityContext:
+{{ toYaml .Values.containerSecurity.securityContext | indent 10 }}
+      {{- end }}
+      {{- if or (not (empty .Values.mountedVolumes.volumeMounts)) (and (.Values.webhooks.enabled) (.Values.webhooks.tls.secretRef)) }}
+        volumeMounts:
+      {{- end }}
+      {{- if not (empty .Values.mountedVolumes.volumeMounts) }}
+      {{- range .Values.mountedVolumes.volumeMounts }}
+      {{- if and ($.Values.webhooks.enabled) (or (eq .mountPath "/mnt/sslcerts/webhook") (eq .name "webhook-certs")) }}
+      {{- $_ := fail "mount path \"/mnt/sslcerts/webhook\" and name \"webhook-certs\" are reserved for webhooks" }}
+      {{- end }}
+          - {{ toYaml . | indent 12 | trim }}
+      {{- end }}
+      {{- end }}
+      {{- if and (.Values.webhooks.enabled) (.Values.webhooks.tls.secretRef) }}
+          - mountPath: /mnt/sslcerts/webhook
+            name: webhook-certs
+            readOnly: true
+      {{- end }}
+      {{- if or (not (empty .Values.mountedVolumes.volumes)) (and (.Values.webhooks.enabled) (.Values.webhooks.tls.secretRef)) }}
+      volumes:
+      {{- end }}
+      {{- if not (empty .Values.mountedVolumes.volumes ) }}
+      {{- range .Values.mountedVolumes.volumes }}
+      {{- if and ($.Values.webhooks.enabled) (eq .name "webhook-certs") }}
+      {{- $_ := fail "name \"webhook-certs\" is reserved for webhooks" }}
+      {{- end }}
+        - {{ toYaml . | indent 10 | trim }}
+      {{- end }}
+      {{- end }}
+      {{- if and (.Values.webhooks.enabled) (.Values.webhooks.tls.secretRef) }}
+        - name: webhook-certs
+          secret:
+            defaultMode: 420
+            secretName: {{ .Values.webhooks.tls.secretRef }}
+      {{- end }}
       {{- if and .Values.imagePullSecretRef (not .Values.serviceAccount.create) }}
       imagePullSecrets:
         - name: {{ .Values.imagePullSecretRef }}

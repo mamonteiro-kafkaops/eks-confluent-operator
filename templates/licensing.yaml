@@ -16,5 +16,4 @@ data:
   {{- if .Values.licenseKey }}
   license.txt: {{ .Values.licenseKey | b64enc }}
   {{- end }}
-  publicKey.pem: {{ .Values.publicKey | b64enc }}
 {{- end }}

@@ -1,5 +1,5 @@
 {{- if .Values.rbac }}
-{{- $clusterRole := or (not .Values.namespaced) (gt (len .Values.namespaceList) 0)}}
+{{- $clusterRole := or (not .Values.namespaced) (.Values.kRaftEnabled) (gt (len .Values.namespaceList) 0)}}
 apiVersion: rbac.authorization.k8s.io/v1
 {{- if not $clusterRole }}
 kind: Role
@@ -19,30 +19,6 @@ metadata:
   namespace: {{ .Release.Namespace }}
   {{- end }}
 rules:
-{{- if .Values.clusterRole.migration }}
-- apiGroups:
-  - cluster.confluent.com
-  resources:
-  - zookeeperclusters
-  - zookeeperclusters/status
-  - zookeeperclusters/scale
-  - zookeeperclusters/finalizers
-  - kafkaclusters
-  - kafkaclusters/status
-  - kafkaclusters/scale
-  - kafkaclusters/finalizers
-  verbs:
-  - '*'
-- apiGroups:
-  - operator.confluent.cloud
-  resources:
-  - physicalstatefulclusters
-  - physicalstatefulclusters/scale
-  - physicalstatefulclusters/status
-  - physicalstatefulclusters/finalizers
-  verbs:
-  - '*'
-{{- end }}
 - apiGroups:
   - platform.confluent.io
   resources:
@@ -91,11 +67,17 @@ rules:
   - patch
   - delete
 - apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - get
+- apiGroups:
   - ""
   resources:
   - configmaps
-  - events
   - persistentvolumeclaims
+  - persistentvolumes
   - secrets
   - secrets/finalizers
   - pods
@@ -108,6 +90,23 @@ rules:
   - update
   - patch
   - delete
+{{- if gt (int (.Values.replicas)) 1 }}
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - create
+  - get
+  - update
+{{- end }}
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
 - apiGroups:
   - networking.k8s.io
   resources:
@@ -129,5 +128,45 @@ rules:
   - get
 {{- if $clusterRole }}
   - list
+  - watch
+{{- end }}
+{{- if .Values.webhooks.enabled }}
+# Webhook configurations are cluster scoped
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app: {{ include "confluent-operator.name" . }}
+    app.kubernetes.io/name: {{ include "confluent-operator.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/component: "confluent-operator"
+    helm.sh/chart: {{ include "confluent-operator.chart" . }}
+  name: {{ .Values.name }}-webhook-{{ .Release.Namespace }}
+rules:
+  - apiGroups:
+      - admissionregistration.k8s.io
+    resources:
+      - validatingwebhookconfigurations
+    verbs:
+      - get
+      - update
+  - apiGroups:
+      - ""
+    resources:
+      - persistentvolumes
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - namespaces
+    verbs:
+      - get
+      - list
+      - watch
 {{- end }}
 {{- end }}

@@ -16,8 +16,13 @@ spec:
       port: 7778
       protocol: TCP
       targetPort: 7778
+    {{- if (.Values.webhooks.enabled) }}
+    - name: webhook
+      port: {{ .Values.webhooks.port }}
+      protocol: TCP
+      targetPort: {{ .Values.webhooks.port }}
+    {{- end }}
   selector:
     app: "confluent-operator"
     app.kubernetes.io/name: "confluent-operator"
   type: ClusterIP
-
